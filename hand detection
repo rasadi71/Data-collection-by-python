@@ -1,0 +1,88 @@
+import cv2
+import mediapipe as mp
+import os
+import numpy as np
+
+# --- INITIALIZATION ---
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("Error: Could not open camera.")
+    exit()
+
+# MediaPipe Hand detection setup
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+
+hands = mp_hands.Hands(
+    static_image_mode=False,       # For real-time video
+    max_num_hands=1,               # Detect only one hand at a time
+    min_detection_confidence=0.7,  # Detection confidence threshold
+    min_tracking_confidence=0.6
+)
+
+# Parameters
+offset = 40  # Margin around the hand bounding box
+
+# Data collection settings
+folder = "Data/Hand_Raw_Variable"
+os.makedirs(folder, exist_ok=True)
+counter = 0
+
+print(f"Collecting RAW Hand data for: {folder}")
+print("Press 's' to save an image and 'q' to quit.")
+
+while True:
+    success, img = cap.read()
+    if not success:
+        break
+
+    imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = hands.process(imgRGB)
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # Get bounding box of hand
+            h, w, c = img.shape
+            x_coords = [lm.x * w for lm in hand_landmarks.landmark]
+            y_coords = [lm.y * h for lm in hand_landmarks.landmark]
+            x_min, x_max = int(min(x_coords)), int(max(x_coords))
+            y_min, y_max = int(min(y_coords)), int(max(y_coords))
+
+            # Add offset and clamp
+            x1 = max(0, x_min - offset)
+            y1 = max(0, y_min - offset)
+            x2 = min(w, x_max + offset)
+            y2 = min(h, y_max + offset)
+
+            imgCrop = img[y1:y2, x1:x2]
+
+            # Draw hand landmarks
+            mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # Draw rectangle around hand
+            cv2.rectangle(img, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+            if imgCrop.shape[0] > 0 and imgCrop.shape[1] > 0:
+                cv2.imshow("HandCrop (Raw Size)", imgCrop)
+
+    # Display Main Image
+    cv2.imshow("Image", img)
+    key = cv2.waitKey(1) & 0xFF
+
+    # Save image on 's' key press
+    if key == ord('s'):
+        if 'imgCrop' in locals() and imgCrop.shape[0] > 0 and imgCrop.shape[1] > 0:
+            counter += 1
+            filename = f'{folder}/Hand_{counter:04d}_{imgCrop.shape[0]}x{imgCrop.shape[1]}.jpg'
+            cv2.imwrite(filename, imgCrop)
+            print(f"Saved {counter} images (Size: {imgCrop.shape[0]}x{imgCrop.shape[1]}) to {folder}")
+        else:
+            print("Hand not detected or crop failed. Cannot save.")
+
+    # Exit on 'q' key press
+    if key == ord('q'):
+        break
+
+# --- CLEANUP ---
+cap.release()
+cv2.destroyAllWindows()
